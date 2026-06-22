@@ -1,0 +1,6 @@
+.env
+movie_bot.db
+__pycache__/
+*.pyc
+.venv/
+venv/
