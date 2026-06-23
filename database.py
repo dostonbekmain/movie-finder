@@ -159,6 +159,18 @@ async def delete_movie(code: str) -> bool:
         return True
 
 
+async def update_movie_name(code: str, name: str) -> bool:
+    """Kod orqali kinoning nomini o'zgartiradi. Topilmasa False qaytaradi"""
+    async with aiosqlite.connect(DB_NAME) as db:
+        cursor = await db.execute("SELECT id FROM movies WHERE code = ?", (code,))
+        existing = await cursor.fetchone()
+        if existing is None:
+            return False
+        await db.execute("UPDATE movies SET name = ? WHERE code = ?", (name, code))
+        await db.commit()
+        return True
+
+
 async def get_movies_count() -> int:
     """Jami kinolar sonini qaytaradi"""
     async with aiosqlite.connect(DB_NAME) as db:

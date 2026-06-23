@@ -28,6 +28,7 @@ PAGE_LIMIT = 10
 
 class AddMovieStates(StatesGroup):
     waiting_for_video = State()
+    waiting_for_name = State()
     waiting_for_code = State()
 
 
@@ -108,8 +109,8 @@ async def process_movie_video(message: Message, state: FSMContext):
     if message.from_user.id not in ADMIN_IDS:
         return
     await state.update_data(file_id=message.video.file_id, file_type="video")
-    await state.set_state(AddMovieStates.waiting_for_code)
-    await message.answer("✍️ Endi kino kodini yuboring (masalan: 1234).")
+    await state.set_state(AddMovieStates.waiting_for_name)
+    await message.answer("✍️ Endi kino nomini yuboring (masalan: Avengers: Endgame).")
 
 
 @router.message(StateFilter(AddMovieStates.waiting_for_video), F.document)
@@ -119,8 +120,8 @@ async def process_movie_document(message: Message, state: FSMContext):
     if message.from_user.id not in ADMIN_IDS:
         return
     await state.update_data(file_id=message.document.file_id, file_type="document")
-    await state.set_state(AddMovieStates.waiting_for_code)
-    await message.answer("✍️ Endi kino kodini yuboring (masalan: 1234).")
+    await state.set_state(AddMovieStates.waiting_for_name)
+    await message.answer("✍️ Endi kino nomini yuboring (masalan: Avengers: Endgame).")
 
 
 @router.message(StateFilter(AddMovieStates.waiting_for_video))
@@ -128,6 +129,21 @@ async def process_movie_video_invalid(message: Message):
     if message.from_user.id not in ADMIN_IDS:
         return
     await message.answer("❌ Iltimos, video yoki fayl (document) ko'rinishida yuboring.")
+
+
+@router.message(StateFilter(AddMovieStates.waiting_for_name))
+async def process_movie_name(message: Message, state: FSMContext):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+
+    name = message.text.strip() if message.text else ""
+    if not name:
+        await message.answer("❌ Iltimos, kino nomini matn ko'rinishida yuboring.")
+        return
+
+    await state.update_data(name=name)
+    await state.set_state(AddMovieStates.waiting_for_code)
+    await message.answer("✍️ Endi kino kodini yuboring (masalan: 1234).")
 
 
 @router.message(StateFilter(AddMovieStates.waiting_for_code))
@@ -143,8 +159,9 @@ async def process_movie_code(message: Message, state: FSMContext):
     data = await state.get_data()
     file_id = data.get("file_id")
     file_type = data.get("file_type", "video")
+    name = data.get("name", code)
 
-    added = await db.add_movie(code=code, file_id=file_id, name=code, file_type=file_type)
+    added = await db.add_movie(code=code, file_id=file_id, name=name, file_type=file_type)
     await state.clear()
 
     if not added:
@@ -153,7 +170,7 @@ async def process_movie_code(message: Message, state: FSMContext):
 
     deep_link = f"https://t.me/{BOT_USERNAME}?start={code}"
     await message.answer(
-        f"✅ Kino qo'shildi!\n\nKod: {code}\nDeep link: {deep_link}\n\n"
+        f"✅ Kino qo'shildi!\n\nNomi: {name}\nKod: {code}\nDeep link: {deep_link}\n\n"
         "Ushbu havolani PUBLIC kanaldagi post tugmasiga biriktiring."
     )
 
@@ -186,6 +203,25 @@ async def cmd_delete(message: Message):
     deleted = await db.delete_movie(code)
     if deleted:
         await message.answer(f"✅ '{code}' kodli kino o'chirildi.")
+    else:
+        await message.answer(f"❌ '{code}' kodli kino topilmadi.")
+
+
+@router.message(Command("rename"))
+async def cmd_rename(message: Message):
+    """Mavjud kinoning nomini o'zgartiradi: /rename <kod> <yangi nom>"""
+    if message.from_user.id not in ADMIN_IDS:
+        return
+
+    args = message.text.split(maxsplit=2)
+    if len(args) < 3 or not args[2].strip():
+        await message.answer("❗ Foydalanish: /rename <kod> <yangi nom>\nMasalan: /rename 1 Avengers: Endgame")
+        return
+
+    code, new_name = args[1].strip(), args[2].strip()
+    updated = await db.update_movie_name(code, new_name)
+    if updated:
+        await message.answer(f"✅ '{code}' kodli kino nomi '{new_name}' ga o'zgartirildi.")
     else:
         await message.answer(f"❌ '{code}' kodli kino topilmadi.")
 
