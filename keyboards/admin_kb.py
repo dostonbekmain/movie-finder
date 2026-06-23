@@ -25,10 +25,9 @@ def admin_main_menu() -> InlineKeyboardMarkup:
         inline_keyboard=[
             [InlineKeyboardButton(text="📊 Statistika", callback_data="admin_stats")],
             [InlineKeyboardButton(text="🎬 Kino qo'shish", callback_data="admin_add_movie")],
-            [InlineKeyboardButton(text="🗑 Kino o'chirish", callback_data="admin_delete_movie")],
             [InlineKeyboardButton(text="📋 Kinolar ro'yxati", callback_data="admin_movies_list:0")],
             [InlineKeyboardButton(text="👥 Foydalanuvchilar", callback_data="admin_users_list:0")],
-            [InlineKeyboardButton(text="📢 Broadcast", callback_data="admin_broadcast")],
+            [InlineKeyboardButton(text="🗄 Backup", callback_data="admin_backup")],
         ]
     )
 

@@ -321,15 +321,26 @@ async def cmd_broadcast(message: Message, bot: Bot):
 
 # ---------------------- 7. Baza zaxirasi (backup) ----------------------
 
-@router.message(Command("backup"))
-async def cmd_backup(message: Message, bot: Bot):
-    """Joriy SQLite bazasini (movie_bot.db) document sifatida adminga yuboradi.
+async def send_backup(chat_id: int, bot: Bot):
+    """Joriy SQLite bazasini (movie_bot.db) document sifatida yuboradi.
     Serverdagi (masalan Railway) bazani lokal nusxalash/tekshirish uchun foydali"""
-    if message.from_user.id not in ADMIN_IDS:
-        return
-
     await bot.send_document(
-        chat_id=message.from_user.id,
+        chat_id=chat_id,
         document=FSInputFile(DB_NAME),
         caption="🗄 Bazaning joriy nusxasi",
     )
+
+
+@router.message(Command("backup"))
+async def cmd_backup(message: Message, bot: Bot):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    await send_backup(message.from_user.id, bot)
+
+
+@router.callback_query(F.data == "admin_backup")
+async def callback_admin_backup(callback: CallbackQuery, bot: Bot):
+    if callback.from_user.id not in ADMIN_IDS:
+        return
+    await send_backup(callback.from_user.id, bot)
+    await callback.answer("✅ Yuborildi")
