@@ -7,11 +7,11 @@ from aiogram import Router, F, Bot
 from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, FSInputFile
 from aiogram.exceptions import TelegramForbiddenError, TelegramBadRequest
 
 import database as db
-from config import ADMIN_IDS, BOT_USERNAME
+from config import ADMIN_IDS, BOT_USERNAME, DB_NAME
 from keyboards.admin_kb import (
     admin_main_menu,
     pagination_keyboard,
@@ -280,4 +280,20 @@ async def cmd_broadcast(message: Message, bot: Bot):
 
     await message.answer(
         f"✅ Broadcast yakunlandi.\nYuborildi: {sent_count}\nXatolik: {failed_count}"
+    )
+
+
+# ---------------------- 7. Baza zaxirasi (backup) ----------------------
+
+@router.message(Command("backup"))
+async def cmd_backup(message: Message, bot: Bot):
+    """Joriy SQLite bazasini (movie_bot.db) document sifatida adminga yuboradi.
+    Serverdagi (masalan Railway) bazani lokal nusxalash/tekshirish uchun foydali"""
+    if message.from_user.id not in ADMIN_IDS:
+        return
+
+    await bot.send_document(
+        chat_id=message.from_user.id,
+        document=FSInputFile(DB_NAME),
+        caption="🗄 Bazaning joriy nusxasi",
     )
