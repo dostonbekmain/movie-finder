@@ -27,8 +27,38 @@ def admin_main_menu() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="🎬 Kino qo'shish", callback_data="admin_add_movie")],
             [InlineKeyboardButton(text="📋 Kinolar ro'yxati", callback_data="admin_movies_list:0")],
             [InlineKeyboardButton(text="👥 Foydalanuvchilar", callback_data="admin_users_list:0")],
+            [InlineKeyboardButton(text="📢 Majburiy kanallar", callback_data="admin_channels")],
+            [InlineKeyboardButton(text="⚙️ Sozlamalar", callback_data="admin_settings")],
             [InlineKeyboardButton(text="🗄 Backup", callback_data="admin_backup")],
         ]
+    )
+
+
+def settings_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="✏️ O'chish vaqtini o'zgartirish", callback_data="admin_set_minutes")],
+            [InlineKeyboardButton(text="🗑 Kino o'chirish", callback_data="admin_delete_movie")],
+            [InlineKeyboardButton(text="🔙 Orqaga", callback_data="admin_back")],
+        ]
+    )
+
+
+def channels_keyboard(channels) -> InlineKeyboardMarkup:
+    """Kanallar ro'yxati: har biri uchun o'chirish tugmasi, qo'shish va orqaga"""
+    rows = [
+        [InlineKeyboardButton(text=f"🗑 {title}", callback_data=f"admin_channel_del:{cid}")]
+        for cid, _, title, _ in channels
+    ]
+    rows.append([InlineKeyboardButton(text="➕ Kanal qo'shish", callback_data="admin_channel_add")])
+    rows.append([InlineKeyboardButton(text="🔙 Orqaga", callback_data="admin_back")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def cancel_keyboard() -> InlineKeyboardMarkup:
+    """Jarayonni bekor qilish tugmasi (holatni tozalab, admin menyuga qaytaradi)"""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text="❌ Bekor qilish", callback_data="admin_back")]]
     )
 
 

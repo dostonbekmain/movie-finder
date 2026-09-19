@@ -51,7 +51,79 @@ async def init_db():
             )
         """)
 
+        # Majburiy obuna kanallari
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS channels (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                chat_id INTEGER UNIQUE NOT NULL,
+                title TEXT NOT NULL,
+                link TEXT NOT NULL,
+                added_date TEXT NOT NULL
+            )
+        """)
+
+        # Sozlamalar (kalit-qiymat)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+        """)
+
         await db.commit()
+
+
+# ---------------------- SETTINGS ----------------------
+
+DEFAULT_DELETE_MINUTES = 3
+
+
+async def get_delete_minutes() -> int:
+    """Kino xabari necha daqiqadan keyin o'chiriladi (0 — o'chirilmaydi)"""
+    async with aiosqlite.connect(DB_NAME) as db:
+        cursor = await db.execute("SELECT value FROM settings WHERE key = 'delete_minutes'")
+        row = await cursor.fetchone()
+        return int(row[0]) if row else DEFAULT_DELETE_MINUTES
+
+
+async def set_delete_minutes(minutes: int):
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute(
+            "INSERT INTO settings (key, value) VALUES ('delete_minutes', ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (str(minutes),),
+        )
+        await db.commit()
+
+
+# ---------------------- CHANNELS ----------------------
+
+async def add_channel(chat_id: int, title: str, link: str) -> bool:
+    """Majburiy kanal qo'shadi. Allaqachon mavjud bo'lsa False qaytaradi"""
+    async with aiosqlite.connect(DB_NAME) as db:
+        try:
+            await db.execute(
+                "INSERT INTO channels (chat_id, title, link, added_date) VALUES (?, ?, ?, ?)",
+                (chat_id, title, link, datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
+            )
+            await db.commit()
+            return True
+        except aiosqlite.IntegrityError:
+            return False
+
+
+async def get_channels():
+    """Barcha majburiy kanallar: (id, chat_id, title, link)"""
+    async with aiosqlite.connect(DB_NAME) as db:
+        cursor = await db.execute("SELECT id, chat_id, title, link FROM channels ORDER BY id")
+        return await cursor.fetchall()
+
+
+async def delete_channel(channel_id: int) -> bool:
+    async with aiosqlite.connect(DB_NAME) as db:
+        cursor = await db.execute("DELETE FROM channels WHERE id = ?", (channel_id,))
+        await db.commit()
+        return cursor.rowcount > 0
 
 
 # ---------------------- USERS ----------------------

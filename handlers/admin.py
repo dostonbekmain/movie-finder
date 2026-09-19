@@ -2,6 +2,7 @@
 # Statistika, kino qo'shish/o'chirish, ro'yxatlar, broadcast
 
 import asyncio
+import re
 
 from aiogram import Router, F, Bot
 from aiogram.filters import Command, StateFilter
@@ -16,6 +17,9 @@ from keyboards.admin_kb import (
     admin_main_menu,
     pagination_keyboard,
     back_to_admin_menu,
+    cancel_keyboard,
+    channels_keyboard,
+    settings_keyboard,
     ADMIN_PANEL_BUTTON_TEXT,
 )
 
@@ -36,6 +40,15 @@ class BroadcastStates(StatesGroup):
     waiting_for_text = State()
 
 
+class AddChannelStates(StatesGroup):
+    waiting_for_link = State()
+
+
+class SettingsStates(StatesGroup):
+    waiting_for_minutes = State()
+    waiting_for_delete_code = State()
+
+
 def is_admin(user_id: int) -> bool:
     return user_id in ADMIN_IDS
 
@@ -51,6 +64,14 @@ async def cmd_admin(message: Message):
         return  # admin bo'lmasa — e'tibor berilmaydi
 
     await message.answer("🔧 Admin panel:", reply_markup=admin_main_menu())
+
+
+@router.message(Command("cancel"))
+async def cmd_cancel(message: Message, state: FSMContext):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    await state.clear()
+    await message.answer("❌ Bekor qilindi.\n\n🔧 Admin panel:", reply_markup=admin_main_menu())
 
 
 @router.callback_query(F.data == "admin_back")
@@ -91,7 +112,9 @@ async def callback_admin_add_movie(callback: CallbackQuery, state: FSMContext):
     if callback.from_user.id not in ADMIN_IDS:
         return
     await state.set_state(AddMovieStates.waiting_for_video)
-    await callback.message.edit_text("🎬 Kinoni (video faylni) yuboring.")
+    await callback.message.edit_text(
+        "🎬 Kinoni (video faylni) yuboring.", reply_markup=cancel_keyboard()
+    )
     await callback.answer()
 
 
@@ -101,7 +124,7 @@ async def cmd_add(message: Message, state: FSMContext):
     if message.from_user.id not in ADMIN_IDS:
         return
     await state.set_state(AddMovieStates.waiting_for_video)
-    await message.answer("🎬 Kinoni (video faylni) yuboring.")
+    await message.answer("🎬 Kinoni (video faylni) yuboring.", reply_markup=cancel_keyboard())
 
 
 @router.message(StateFilter(AddMovieStates.waiting_for_video), F.video)
@@ -110,7 +133,10 @@ async def process_movie_video(message: Message, state: FSMContext):
         return
     await state.update_data(file_id=message.video.file_id, file_type="video")
     await state.set_state(AddMovieStates.waiting_for_name)
-    await message.answer("✍️ Endi kino nomini yuboring (masalan: Avengers: Endgame).")
+    await message.answer(
+        "✍️ Endi kino nomini yuboring (masalan: Avengers: Endgame).",
+        reply_markup=cancel_keyboard(),
+    )
 
 
 @router.message(StateFilter(AddMovieStates.waiting_for_video), F.document)
@@ -121,14 +147,20 @@ async def process_movie_document(message: Message, state: FSMContext):
         return
     await state.update_data(file_id=message.document.file_id, file_type="document")
     await state.set_state(AddMovieStates.waiting_for_name)
-    await message.answer("✍️ Endi kino nomini yuboring (masalan: Avengers: Endgame).")
+    await message.answer(
+        "✍️ Endi kino nomini yuboring (masalan: Avengers: Endgame).",
+        reply_markup=cancel_keyboard(),
+    )
 
 
 @router.message(StateFilter(AddMovieStates.waiting_for_video))
 async def process_movie_video_invalid(message: Message):
     if message.from_user.id not in ADMIN_IDS:
         return
-    await message.answer("❌ Iltimos, video yoki fayl (document) ko'rinishida yuboring.")
+    await message.answer(
+        "❌ Iltimos, video yoki fayl (document) ko'rinishida yuboring.",
+        reply_markup=cancel_keyboard(),
+    )
 
 
 @router.message(StateFilter(AddMovieStates.waiting_for_name))
@@ -143,7 +175,9 @@ async def process_movie_name(message: Message, state: FSMContext):
 
     await state.update_data(name=name)
     await state.set_state(AddMovieStates.waiting_for_code)
-    await message.answer("✍️ Endi kino kodini yuboring (masalan: 1234).")
+    await message.answer(
+        "✍️ Endi kino kodini yuboring (masalan: 1234).", reply_markup=cancel_keyboard()
+    )
 
 
 @router.message(StateFilter(AddMovieStates.waiting_for_code))
@@ -175,18 +209,172 @@ async def process_movie_code(message: Message, state: FSMContext):
     )
 
 
+# ---------------------- Sozlamalar ----------------------
+
+def settings_text(minutes: int) -> str:
+    value = f"{minutes} daqiqa" if minutes > 0 else "o'chirilmaydi"
+    return f"⚙️ Sozlamalar\n\n⏱ Kino xabari o'chish vaqti: {value}"
+
+
+@router.callback_query(F.data == "admin_settings")
+async def callback_admin_settings(callback: CallbackQuery, state: FSMContext):
+    if callback.from_user.id not in ADMIN_IDS:
+        return
+    await state.clear()
+    minutes = await db.get_delete_minutes()
+    await callback.message.edit_text(settings_text(minutes), reply_markup=settings_keyboard())
+    await callback.answer()
+
+
+@router.callback_query(F.data == "admin_set_minutes")
+async def callback_admin_set_minutes(callback: CallbackQuery, state: FSMContext):
+    if callback.from_user.id not in ADMIN_IDS:
+        return
+    await state.set_state(SettingsStates.waiting_for_minutes)
+    await callback.message.edit_text(
+        "⏱ Kino necha daqiqadan keyin o'chsin? Raqam yuboring (masalan: 5).\n"
+        "0 yuborsangiz, kino o'chirilmaydi.",
+        reply_markup=cancel_keyboard(),
+    )
+    await callback.answer()
+
+
+@router.message(StateFilter(SettingsStates.waiting_for_minutes))
+async def process_minutes(message: Message, state: FSMContext):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    text = message.text.strip() if message.text else ""
+    if not text.isdigit() or int(text) > 1440:
+        await message.answer(
+            "❌ 0 dan 1440 gacha butun son yuboring.", reply_markup=cancel_keyboard()
+        )
+        return
+    minutes = int(text)
+    await db.set_delete_minutes(minutes)
+    await state.clear()
+    await message.answer(settings_text(minutes), reply_markup=settings_keyboard())
+
+
+# ---------------------- Majburiy obuna kanallari ----------------------
+
+CHANNEL_LINK_RE = re.compile(
+    r"^(?:https?://)?(?:t\.me/|telegram\.me/)?@?([A-Za-z][A-Za-z0-9_]{3,})/?$"
+)
+
+
+async def render_channels(target, edit: bool = True):
+    channels = await db.get_channels()
+    if channels:
+        lines = [f"{i}. {title} — {link}" for i, (_, _, title, link) in enumerate(channels, 1)]
+        text = "📢 Majburiy obuna kanallari:\n\n" + "\n".join(lines) + "\n\n🗑 bosib o'chirishingiz mumkin."
+    else:
+        text = "📢 Majburiy kanallar yo'q. Foydalanuvchilar obunasiz foydalana oladi."
+    if edit:
+        await target.edit_text(text, reply_markup=channels_keyboard(channels), disable_web_page_preview=True)
+    else:
+        await target.answer(text, reply_markup=channels_keyboard(channels), disable_web_page_preview=True)
+
+
+@router.callback_query(F.data == "admin_channels")
+async def callback_admin_channels(callback: CallbackQuery, state: FSMContext):
+    if callback.from_user.id not in ADMIN_IDS:
+        return
+    await state.clear()
+    await render_channels(callback.message)
+    await callback.answer()
+
+
+@router.callback_query(F.data == "admin_channel_add")
+async def callback_admin_channel_add(callback: CallbackQuery, state: FSMContext):
+    if callback.from_user.id not in ADMIN_IDS:
+        return
+    await state.set_state(AddChannelStates.waiting_for_link)
+    await callback.message.edit_text(
+        "🔗 Kanal havolasini yuboring (masalan: https://t.me/kanal_nomi yoki @kanal_nomi).\n\n"
+        "⚠️ Bot avval shu kanalga ADMIN qilib qo'shilgan bo'lishi kerak.",
+        reply_markup=cancel_keyboard(),
+    )
+    await callback.answer()
+
+
+@router.message(StateFilter(AddChannelStates.waiting_for_link))
+async def process_channel_link(message: Message, state: FSMContext, bot: Bot):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+
+    raw = message.text.strip() if message.text else ""
+    match = CHANNEL_LINK_RE.match(raw)
+    if not match:
+        await message.answer(
+            "❌ Havola noto'g'ri. Ochiq kanal havolasini yuboring: https://t.me/kanal_nomi\n"
+            "(Yopiq kanal taklif havolalari qo'llab-quvvatlanmaydi.)",
+            reply_markup=cancel_keyboard(),
+        )
+        return
+
+    username = match.group(1)
+    try:
+        chat = await bot.get_chat(f"@{username}")
+        me = await bot.get_chat_member(chat.id, bot.id)
+    except (TelegramBadRequest, TelegramForbiddenError):
+        await message.answer(
+            "❌ Kanal topilmadi yoki bot u yerda yo'q. Botni kanalga admin qilib qo'shing va qayta yuboring.",
+            reply_markup=cancel_keyboard(),
+        )
+        return
+
+    if me.status not in ("administrator", "creator"):
+        await message.answer(
+            "❌ Bot bu kanalda admin emas. Botni admin qilib, havolani qayta yuboring.",
+            reply_markup=cancel_keyboard(),
+        )
+        return
+
+    added = await db.add_channel(chat.id, chat.title or username, f"https://t.me/{username}")
+    await state.clear()
+    if not added:
+        await message.answer("⚠️ Bu kanal allaqachon qo'shilgan.")
+    else:
+        await message.answer(f"✅ Kanal qo'shildi: {chat.title or username}")
+    await render_channels(message, edit=False)
+
+
+@router.callback_query(F.data.startswith("admin_channel_del:"))
+async def callback_admin_channel_del(callback: CallbackQuery):
+    if callback.from_user.id not in ADMIN_IDS:
+        return
+    await db.delete_channel(int(callback.data.split(":")[1]))
+    await render_channels(callback.message)
+    await callback.answer("🗑 O'chirildi")
+
+
 # ---------------------- 3. Kino o'chirish ----------------------
 
 @router.callback_query(F.data == "admin_delete_movie")
-async def callback_admin_delete_movie(callback: CallbackQuery):
+async def callback_admin_delete_movie(callback: CallbackQuery, state: FSMContext):
     if callback.from_user.id not in ADMIN_IDS:
         return
+    await state.set_state(SettingsStates.waiting_for_delete_code)
     await callback.message.edit_text(
-        "🗑 Kinoni o'chirish uchun quyidagi buyruqni yuboring:\n\n"
-        "/delete <kod>\n\nMasalan: /delete 1234",
-        reply_markup=back_to_admin_menu(),
+        "🗑 O'chiriladigan kinoning kodini (ID) yuboring.", reply_markup=cancel_keyboard()
     )
     await callback.answer()
+
+
+@router.message(StateFilter(SettingsStates.waiting_for_delete_code))
+async def process_delete_code(message: Message, state: FSMContext):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    code = message.text.strip() if message.text else ""
+    if not code:
+        await message.answer("❌ Kino kodini matn ko'rinishida yuboring.", reply_markup=cancel_keyboard())
+        return
+    deleted = await db.delete_movie(code)
+    await state.clear()
+    if deleted:
+        await message.answer(f"✅ '{code}' kodli kino o'chirildi.", reply_markup=settings_keyboard())
+    else:
+        await message.answer(f"❌ '{code}' kodli kino topilmadi.", reply_markup=settings_keyboard())
 
 
 @router.message(Command("delete"))
