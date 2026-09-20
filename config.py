@@ -32,6 +32,9 @@ ADMIN_IDS = [int(x.strip()) for x in _get_required("ADMIN_IDS").split(",") if x.
 # botga yuborib qo'shadi), kelajakda zaxira sifatida kerak bo'lishi mumkin
 PRIVATE_CHANNEL_ID = int(os.getenv("PRIVATE_CHANNEL_ID", "0")) or None
 
+# Kino janrlari (admin kino qo'shganda tanlaydi, foydalanuvchilar "Janrlar" bo'limida ko'radi)
+GENRES = ["Komediya", "Jangari", "Drama", "Qo'rqinchli", "Multfilm", "Fantastika", "Melodrama", "Serial"]
+
 # SQLite ma'lumotlar bazasi fayli yo'li.
 # Railway'da persistent volume mount qilingan papkaga yo'naltirish uchun
 # DB_PATH environment variable orqali o'zgartiriladi (masalan: /data/movie_bot.db)

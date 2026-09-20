@@ -27,6 +27,7 @@ def admin_main_menu() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="🎬 Kino qo'shish", callback_data="admin_add_movie")],
             [InlineKeyboardButton(text="📋 Kinolar ro'yxati", callback_data="admin_movies_list:0")],
             [InlineKeyboardButton(text="👥 Foydalanuvchilar", callback_data="admin_users_list:0")],
+            [InlineKeyboardButton(text="📣 Reklama yuborish", callback_data="admin_broadcast")],
             [InlineKeyboardButton(text="📢 Majburiy kanallar", callback_data="admin_channels")],
             [InlineKeyboardButton(text="⚙️ Sozlamalar", callback_data="admin_settings")],
             [InlineKeyboardButton(text="🗄 Backup", callback_data="admin_backup")],
@@ -53,6 +54,32 @@ def channels_keyboard(channels) -> InlineKeyboardMarkup:
     rows.append([InlineKeyboardButton(text="➕ Kanal qo'shish", callback_data="admin_channel_add")])
     rows.append([InlineKeyboardButton(text="🔙 Orqaga", callback_data="admin_back")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def genre_select_keyboard(genres) -> InlineKeyboardMarkup:
+    """Kino qo'shishda janr tanlash (indeks bo'yicha), -1 — janrsiz"""
+    rows = []
+    for i in range(0, len(genres), 2):
+        rows.append(
+            [
+                InlineKeyboardButton(text=genres[j], callback_data=f"setgenre:{j}")
+                for j in range(i, min(i + 2, len(genres)))
+            ]
+        )
+    rows.append([InlineKeyboardButton(text="➖ Janrsiz", callback_data="setgenre:-1")])
+    rows.append([InlineKeyboardButton(text="❌ Bekor qilish", callback_data="admin_back")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def broadcast_confirm_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✅ Yuborish", callback_data="bc_confirm"),
+                InlineKeyboardButton(text="❌ Bekor qilish", callback_data="admin_back"),
+            ]
+        ]
+    )
 
 
 def cancel_keyboard() -> InlineKeyboardMarkup:

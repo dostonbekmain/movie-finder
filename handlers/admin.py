@@ -9,16 +9,20 @@ from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import Message, CallbackQuery, FSInputFile
-from aiogram.exceptions import TelegramForbiddenError, TelegramBadRequest
+from aiogram.exceptions import TelegramForbiddenError, TelegramBadRequest, TelegramRetryAfter
 from aiogram.dispatcher.event.bases import SkipHandler
 
 import database as db
-from config import ADMIN_IDS, BOT_USERNAME, DB_NAME
+from config import ADMIN_IDS, BOT_USERNAME, DB_NAME, GENRES
+from reports import weekly_chart
+from texts import t
 from keyboards.admin_kb import (
     admin_main_menu,
     pagination_keyboard,
     back_to_admin_menu,
     cancel_keyboard,
+    genre_select_keyboard,
+    broadcast_confirm_keyboard,
     channels_keyboard,
     settings_keyboard,
     ADMIN_PANEL_BUTTON_TEXT,
@@ -34,11 +38,17 @@ PAGE_LIMIT = 10
 class AddMovieStates(StatesGroup):
     waiting_for_video = State()
     waiting_for_name = State()
+    waiting_for_category = State()
     waiting_for_code = State()
 
 
+class AddPartStates(StatesGroup):
+    waiting_for_file = State()
+
+
 class BroadcastStates(StatesGroup):
-    waiting_for_text = State()
+    waiting_for_message = State()
+    waiting_for_confirm = State()
 
 
 class AddChannelStates(StatesGroup):
@@ -102,7 +112,8 @@ async def callback_admin_stats(callback: CallbackQuery):
         f"👥 Jami foydalanuvchilar: {users_count}\n"
         f"🚪 Botni tark etganlar: {left_users}\n"
         f"🆕 Bugungi yangi foydalanuvchilar: {today_new_users}\n"
-        f"📥 Bugungi kino so'rovlari: {today_requests}"
+        f"📥 Bugungi kino so'rovlari: {today_requests}\n\n"
+        + await weekly_chart()
     )
     await callback.message.edit_text(text, reply_markup=back_to_admin_menu())
     await callback.answer()
@@ -177,10 +188,22 @@ async def process_movie_name(message: Message, state: FSMContext):
         return
 
     await state.update_data(name=name)
+    await state.set_state(AddMovieStates.waiting_for_category)
+    await message.answer("🎭 Kino janrini tanlang:", reply_markup=genre_select_keyboard(GENRES))
+
+
+@router.callback_query(StateFilter(AddMovieStates.waiting_for_category), F.data.startswith("setgenre:"))
+async def process_movie_category(callback: CallbackQuery, state: FSMContext):
+    if callback.from_user.id not in ADMIN_IDS:
+        return
+    idx = int(callback.data.split(":")[1])
+    category = GENRES[idx] if 0 <= idx < len(GENRES) else None
+    await state.update_data(category=category)
     await state.set_state(AddMovieStates.waiting_for_code)
-    await message.answer(
+    await callback.message.edit_text(
         "✍️ Endi kino kodini yuboring (masalan: 1234).", reply_markup=cancel_keyboard()
     )
+    await callback.answer()
 
 
 @router.message(StateFilter(AddMovieStates.waiting_for_code))
@@ -198,7 +221,11 @@ async def process_movie_code(message: Message, state: FSMContext):
     file_type = data.get("file_type", "video")
     name = data.get("name", code)
 
-    added = await db.add_movie(code=code, file_id=file_id, name=name, file_type=file_type)
+    category = data.get("category")
+
+    added = await db.add_movie(
+        code=code, file_id=file_id, name=name, file_type=file_type, category=category
+    )
     await state.clear()
 
     if not added:
@@ -207,9 +234,56 @@ async def process_movie_code(message: Message, state: FSMContext):
 
     deep_link = f"https://t.me/{BOT_USERNAME}?start={code}"
     await message.answer(
-        f"✅ Kino qo'shildi!\n\nNomi: {name}\nKod: {code}\nDeep link: {deep_link}\n\n"
-        "Ushbu havolani PUBLIC kanaldagi post tugmasiga biriktiring."
+        f"✅ Kino qo'shildi!\n\nNomi: {name}\nJanr: {category or '—'}\nKod: {code}\n"
+        f"Deep link: {deep_link}\n\n"
+        "Ushbu havolani PUBLIC kanaldagi post tugmasiga biriktiring.\n"
+        f"Serial bo'lsa, keyingi qismni qo'shish: /addpart {code}"
     )
+
+
+@router.message(Command("addpart"))
+async def cmd_addpart(message: Message, state: FSMContext):
+    """Mavjud kinoga (serialga) keyingi qismni qo'shadi: /addpart <kod>"""
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    args = message.text.split(maxsplit=1)
+    if len(args) < 2 or not args[1].strip():
+        await message.answer("❗ Foydalanish: /addpart <kod>")
+        return
+    code = args[1].strip()
+    if await db.get_movie_by_code(code) is None:
+        await message.answer(f"❌ '{code}' kodli kino topilmadi.")
+        return
+    await state.set_state(AddPartStates.waiting_for_file)
+    await state.update_data(code=code)
+    await message.answer(
+        f"🎬 '{code}' uchun keyingi qism faylini (video yoki document) yuboring.",
+        reply_markup=cancel_keyboard(),
+    )
+
+
+@router.message(StateFilter(AddPartStates.waiting_for_file), F.video | F.document)
+async def process_part_file(message: Message, state: FSMContext):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    data = await state.get_data()
+    code = data["code"]
+    if message.video:
+        file_id, file_type = message.video.file_id, "video"
+    else:
+        file_id, file_type = message.document.file_id, "document"
+    ep_no = await db.add_episode(code, file_id, file_type)
+    await state.clear()
+    await message.answer(
+        f"✅ '{code}' kinosiga {ep_no}-qism qo'shildi.\nYana qo'shish: /addpart {code}"
+    )
+
+
+@router.message(StateFilter(AddPartStates.waiting_for_file))
+async def process_part_invalid(message: Message):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    await message.answer("❌ Video yoki fayl (document) yuboring.", reply_markup=cancel_keyboard())
 
 
 # ---------------------- Sozlamalar ----------------------
@@ -471,42 +545,64 @@ async def callback_admin_users_list(callback: CallbackQuery):
 # ---------------------- 6. Broadcast ----------------------
 
 @router.callback_query(F.data == "admin_broadcast")
-async def callback_admin_broadcast(callback: CallbackQuery):
+async def callback_admin_broadcast(callback: CallbackQuery, state: FSMContext):
     if callback.from_user.id not in ADMIN_IDS:
         return
+    await state.set_state(BroadcastStates.waiting_for_message)
     await callback.message.edit_text(
-        "📢 Barchaga xabar yuborish uchun quyidagi buyruqni ishlating:\n\n"
-        "/broadcast <matn>",
-        reply_markup=back_to_admin_menu(),
+        "📣 Barcha foydalanuvchilarga yuboriladigan xabarni yuboring "
+        "(matn, rasm, video yoki boshqa turdagi xabar).",
+        reply_markup=cancel_keyboard(),
     )
     await callback.answer()
 
 
-@router.message(Command("broadcast"))
-async def cmd_broadcast(message: Message, bot: Bot):
+@router.message(StateFilter(BroadcastStates.waiting_for_message))
+async def process_broadcast_message(message: Message, state: FSMContext, bot: Bot):
     if message.from_user.id not in ADMIN_IDS:
         return
+    await state.update_data(chat_id=message.chat.id, message_id=message.message_id)
+    await state.set_state(BroadcastStates.waiting_for_confirm)
+    total = len(await db.get_active_user_ids())
+    await message.answer(
+        f"👆 Shu xabar {total} ta foydalanuvchiga yuboriladi. Tasdiqlaysizmi?",
+        reply_markup=broadcast_confirm_keyboard(),
+    )
 
-    args = message.text.split(maxsplit=1)
-    if len(args) < 2 or not args[1].strip():
-        await message.answer("❗ Foydalanish: /broadcast <matn>")
+
+async def copy_with_retry(bot: Bot, chat_id: int, from_chat_id: int, message_id: int):
+    try:
+        await bot.copy_message(chat_id=chat_id, from_chat_id=from_chat_id, message_id=message_id)
+    except TelegramRetryAfter as e:
+        await asyncio.sleep(e.retry_after)
+        await bot.copy_message(chat_id=chat_id, from_chat_id=from_chat_id, message_id=message_id)
+
+
+@router.callback_query(StateFilter(BroadcastStates.waiting_for_confirm), F.data == "bc_confirm")
+async def callback_broadcast_confirm(callback: CallbackQuery, state: FSMContext, bot: Bot):
+    if callback.from_user.id not in ADMIN_IDS:
         return
-
-    text = args[1].strip()
-    user_ids = await db.get_all_user_ids()
+    data = await state.get_data()
+    await state.clear()
+    await callback.answer()
+    await callback.message.edit_text("⏳ Yuborilmoqda...")
 
     sent_count = 0
     failed_count = 0
-    for telegram_id in user_ids:
+    for telegram_id in await db.get_active_user_ids():
         try:
-            await bot.send_message(chat_id=telegram_id, text=text)
+            await copy_with_retry(bot, telegram_id, data["chat_id"], data["message_id"])
             sent_count += 1
-        except (TelegramForbiddenError, TelegramBadRequest):
+        except TelegramForbiddenError:
+            await db.set_user_active(telegram_id, False)
+            failed_count += 1
+        except (TelegramBadRequest, TelegramRetryAfter):
             failed_count += 1
         await asyncio.sleep(0.05)  # Telegram limitlariga tushib qolmaslik uchun
 
-    await message.answer(
-        f"✅ Broadcast yakunlandi.\nYuborildi: {sent_count}\nXatolik: {failed_count}"
+    await callback.message.edit_text(
+        f"✅ Reklama yuborildi.\nYetkazildi: {sent_count}\nXatolik: {failed_count}",
+        reply_markup=back_to_admin_menu(),
     )
 
 
@@ -521,7 +617,7 @@ async def admin_reply_to_user(message: Message, bot: Bot):
     if user_id is None:
         raise SkipHandler
     try:
-        await bot.send_message(user_id, "💬 Admin javobi:")
+        await bot.send_message(user_id, t(await db.get_lang(user_id), "admin_reply"))
         await bot.copy_message(
             chat_id=user_id, from_chat_id=message.chat.id, message_id=message.message_id
         )

@@ -11,6 +11,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from config import BOT_TOKEN
 from database import init_db
 from handlers import admin, user
+from scheduler import daily_job
 
 
 async def main():
@@ -29,6 +30,8 @@ async def main():
 
     # Eski (polling boshlanishidan oldingi) update larni tashlab yuboramiz
     await bot.delete_webhook(drop_pending_updates=True)
+
+    daily_task = asyncio.create_task(daily_job(bot))  # noqa: F841 — havola saqlanadi
 
     await dp.start_polling(bot)
 
