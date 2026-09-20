@@ -94,11 +94,13 @@ async def callback_admin_stats(callback: CallbackQuery):
     users_count = await db.get_users_count()
     today_new_users = await db.get_today_new_users_count()
     today_requests = await db.get_today_requests_count()
+    left_users = await db.get_left_users_count()
 
     text = (
         "📊 Statistika:\n\n"
         f"🎬 Jami kinolar: {movies_count}\n"
         f"👥 Jami foydalanuvchilar: {users_count}\n"
+        f"🚪 Botni tark etganlar: {left_users}\n"
         f"🆕 Bugungi yangi foydalanuvchilar: {today_new_users}\n"
         f"📥 Bugungi kino so'rovlari: {today_requests}"
     )

@@ -41,6 +41,12 @@ async def init_db():
             )
         """)
 
+        # is_active: 0 — foydalanuvchi botni bloklagan/tark etgan
+        cursor = await db.execute("PRAGMA table_info(users)")
+        user_columns = [row[1] for row in await cursor.fetchall()]
+        if "is_active" not in user_columns:
+            await db.execute("ALTER TABLE users ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1")
+
         # So'rovlar jadvali (statistika uchun — har bir kino so'rovi yoziladi)
         await db.execute("""
             CREATE TABLE IF NOT EXISTS requests (
@@ -173,7 +179,26 @@ async def add_user(telegram_id: int, username: str | None):
             )
             await db.commit()
             return True  # yangi foydalanuvchi qo'shildi
+        await db.execute("UPDATE users SET is_active = 1 WHERE telegram_id = ?", (telegram_id,))
+        await db.commit()
         return False  # foydalanuvchi allaqachon mavjud
+
+
+async def set_user_active(telegram_id: int, active: bool):
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute(
+            "UPDATE users SET is_active = ? WHERE telegram_id = ?",
+            (1 if active else 0, telegram_id),
+        )
+        await db.commit()
+
+
+async def get_left_users_count() -> int:
+    """Botni bloklagan/tark etgan foydalanuvchilar soni"""
+    async with aiosqlite.connect(DB_NAME) as db:
+        cursor = await db.execute("SELECT COUNT(*) FROM users WHERE is_active = 0")
+        result = await cursor.fetchone()
+        return result[0] if result else 0
 
 
 async def is_user_exists(telegram_id: int) -> bool:

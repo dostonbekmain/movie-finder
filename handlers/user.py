@@ -8,7 +8,7 @@ from aiogram import Router, F, Bot
 from aiogram.filters import CommandStart, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, ChatMemberUpdated
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 
 import database as db
@@ -109,6 +109,16 @@ async def handle_movie_code_request(message: Message, bot: Bot, code: str):
     sent = await send_movie_to_user(bot, user_id, code)
     if not sent:
         await message.answer("❌ Bunday kodli kino topilmadi.")
+
+
+@router.my_chat_member(F.chat.type == "private")
+async def on_bot_blocked_or_unblocked(event: ChatMemberUpdated):
+    """Foydalanuvchi botni bloklasa/blokdan chiqarsa, holati yangilanadi"""
+    status = event.new_chat_member.status
+    if status == "kicked":
+        await db.set_user_active(event.from_user.id, False)
+    elif status == "member":
+        await db.set_user_active(event.from_user.id, True)
 
 
 @router.message(CommandStart())
