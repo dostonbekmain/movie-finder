@@ -10,6 +10,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import Message, CallbackQuery, FSInputFile
 from aiogram.exceptions import TelegramForbiddenError, TelegramBadRequest
+from aiogram.dispatcher.event.bases import SkipHandler
 
 import database as db
 from config import ADMIN_IDS, BOT_USERNAME, DB_NAME
@@ -505,6 +506,27 @@ async def cmd_broadcast(message: Message, bot: Bot):
     await message.answer(
         f"✅ Broadcast yakunlandi.\nYuborildi: {sent_count}\nXatolik: {failed_count}"
     )
+
+
+# ---------------------- Foydalanuvchi bilan chat (reply orqali javob) ----------------------
+
+@router.message(F.reply_to_message)
+async def admin_reply_to_user(message: Message, bot: Bot):
+    """Admin foydalanuvchi xabariga reply qilsa, javob o'sha foydalanuvchiga boradi"""
+    if message.from_user.id not in ADMIN_IDS:
+        raise SkipHandler
+    user_id = await db.get_chat_user(message.from_user.id, message.reply_to_message.message_id)
+    if user_id is None:
+        raise SkipHandler
+    try:
+        await bot.send_message(user_id, "💬 Admin javobi:")
+        await bot.copy_message(
+            chat_id=user_id, from_chat_id=message.chat.id, message_id=message.message_id
+        )
+    except (TelegramBadRequest, TelegramForbiddenError):
+        await message.answer("❌ Foydalanuvchiga yuborib bo'lmadi (bot bloklangan bo'lishi mumkin).")
+        return
+    await message.answer("✅ Javob yuborildi.")
 
 
 # ---------------------- 7. Baza zaxirasi (backup) ----------------------

@@ -5,16 +5,28 @@ import asyncio
 import html
 
 from aiogram import Router, F, Bot
-from aiogram.filters import CommandStart
+from aiogram.filters import CommandStart, StateFilter
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import Message, CallbackQuery
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 
 import database as db
 from config import ADMIN_IDS
-from keyboards.user_kb import subscribe_keyboard
+from keyboards.user_kb import (
+    subscribe_keyboard,
+    user_reply_keyboard,
+    close_chat_keyboard,
+    CHAT_BUTTON_TEXT,
+    CLOSE_CHAT_BUTTON_TEXT,
+)
 from keyboards.admin_kb import admin_reply_keyboard
 
 router = Router()
+
+
+class ChatStates(StatesGroup):
+    chatting = State()
 
 def welcome_text(user) -> str:
     return (
@@ -100,13 +112,15 @@ async def handle_movie_code_request(message: Message, bot: Bot, code: str):
 
 
 @router.message(CommandStart())
-async def cmd_start(message: Message, bot: Bot):
+async def cmd_start(message: Message, bot: Bot, state: FSMContext):
     """/start — avval obuna tekshiriladi, keyin (kod bo'lsa) kino yuboriladi"""
     user_id = message.from_user.id
+    await state.clear()
 
     await db.add_user(telegram_id=user_id, username=message.from_user.username)
 
-    reply_kb = admin_reply_keyboard() if user_id in ADMIN_IDS else None
+    is_admin = user_id in ADMIN_IDS
+    reply_kb = admin_reply_keyboard() if is_admin else user_reply_keyboard()
 
     # Deep link parametrini ajratib olamiz: "/start 1234" -> "1234"
     args = message.text.split(maxsplit=1)
@@ -114,7 +128,7 @@ async def cmd_start(message: Message, bot: Bot):
 
     missing = await get_unsubscribed_channels(bot, user_id)
     if missing:
-        if reply_kb:
+        if is_admin:
             await message.answer("🔧 Admin panel tugmasi yoqildi.", reply_markup=reply_kb)
         await ask_to_subscribe(message, code, missing)
         return
@@ -124,6 +138,46 @@ async def cmd_start(message: Message, bot: Bot):
         return
 
     await handle_movie_code_request(message, bot, code)
+
+
+@router.message(F.text == CHAT_BUTTON_TEXT)
+async def start_admin_chat(message: Message, state: FSMContext):
+    await state.set_state(ChatStates.chatting)
+    await message.answer(
+        "💬 Xabaringizni yozing, u adminga yuboriladi. Admin javobi shu yerga keladi.\n"
+        "Chiqish uchun «❌ Chatni yopish» ni bosing.",
+        reply_markup=close_chat_keyboard(),
+    )
+
+
+@router.message(StateFilter(ChatStates.chatting), F.text == CLOSE_CHAT_BUTTON_TEXT)
+async def close_admin_chat(message: Message, state: FSMContext):
+    await state.clear()
+    await message.answer("✅ Chat yopildi.", reply_markup=user_reply_keyboard())
+
+
+@router.message(StateFilter(ChatStates.chatting))
+async def forward_to_admins(message: Message, bot: Bot):
+    user = message.from_user
+    header = (
+        f"💬 {html.escape(user.full_name)} "
+        f"(@{user.username or '—'}, ID: {user.id}):\n"
+        "↩️ Javob berish uchun shu xabarga reply qiling."
+    )
+    delivered = False
+    for admin_id in ADMIN_IDS:
+        try:
+            header_msg = await bot.send_message(admin_id, header)
+            copied = await bot.copy_message(
+                chat_id=admin_id, from_chat_id=message.chat.id, message_id=message.message_id
+            )
+        except (TelegramBadRequest, TelegramForbiddenError):
+            continue
+        await db.save_chat_link(admin_id, header_msg.message_id, user.id)
+        await db.save_chat_link(admin_id, copied.message_id, user.id)
+        delivered = True
+
+    await message.answer("✅ Adminga yuborildi." if delivered else "❌ Xabarni yuborib bo'lmadi.")
 
 
 @router.message(F.text, ~F.text.startswith("/"))

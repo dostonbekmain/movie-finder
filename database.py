@@ -70,7 +70,38 @@ async def init_db():
             )
         """)
 
+        # Admin bilan chat: adminga yuborilgan xabar -> qaysi foydalanuvchidan ekani
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS chat_map (
+                admin_id INTEGER NOT NULL,
+                message_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                PRIMARY KEY (admin_id, message_id)
+            )
+        """)
+
         await db.commit()
+
+
+# ---------------------- ADMIN CHAT ----------------------
+
+async def save_chat_link(admin_id: int, message_id: int, user_id: int):
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute(
+            "INSERT OR REPLACE INTO chat_map (admin_id, message_id, user_id) VALUES (?, ?, ?)",
+            (admin_id, message_id, user_id),
+        )
+        await db.commit()
+
+
+async def get_chat_user(admin_id: int, message_id: int) -> int | None:
+    async with aiosqlite.connect(DB_NAME) as db:
+        cursor = await db.execute(
+            "SELECT user_id FROM chat_map WHERE admin_id = ? AND message_id = ?",
+            (admin_id, message_id),
+        )
+        row = await cursor.fetchone()
+        return row[0] if row else None
 
 
 # ---------------------- SETTINGS ----------------------
